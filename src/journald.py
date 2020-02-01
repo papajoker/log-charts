@@ -27,21 +27,32 @@ if len(sys.argv) > 1:
 if len(sys.argv) > 2:
     to_days = sys.argv[2]
 
-def get_journald(priority: int = 2, maxdays: int = 4):
+def get_journald(excludes: list, wants: list, priority: int = 2, maxdays: int = 4):
     returns = {}
-    cmd = f'journalctl -p{priority} --since="-{maxdays}d" --output-fields="__REALTIME_TIMESTAMP,PRIORITY" -o export --no-pager'
+    rid = ""
+    rdate = ""
+    cmd = f'journalctl -p{priority} --since="-{maxdays}d" --output-fields="SYSLOG_IDENTIFIER,__REALTIME_TIMESTAMP,PRIORITY" -o export --no-pager'
 
     process = subprocess.Popen('SYSTEMD_COLORS=xterm '+cmd, stdout=subprocess.PIPE, shell=True, text=True)
     while True:
         line = process.stdout.readline()
+        if line.startswith("SYSLOG_IDENTIFIER"):
+            rid = line.split("=")[1].rstrip()
         if line.startswith("__REALTIME_TIMESTAMP"):
             line = line.split("=")[1]
             date_time = datetime.fromtimestamp(int(line[0:10]))
-            date = date_time.strftime("%Y-%m-%d")
-            try:
-                returns[date] = returns[date] +1
-            except KeyError:
-                returns[date] = 1
+            rdate = date_time.strftime("%Y-%m-%d")
+        if line == "\n":
+            if not rdate:
+                continue
+            if rid not in excludes:
+                if wants[0]=="" or rid in wants:
+                    try:
+                        returns[rdate] = returns[rdate] +1
+                    except KeyError:
+                        returns[rdate] = 1
+                rid = ""
+                rdate = ""
         if line == "":
             break
     return returns
@@ -63,7 +74,9 @@ def render(datas, title, template):
     return contents.replace("<h3><!-- --></h3>", f"<h4>{title}</h4>", 1)
 
 
-values = get_journald(to_priority, to_days)
+excludes = os.getenv('NOT', "").split(",")
+wants = os.getenv('ONLY',"").split(",")
+values = get_journald(excludes, wants, to_priority, to_days)
 if TTY:
     print(f"journald- niveaux de 0 à {to_priority}\n")
     for k in values.items():
